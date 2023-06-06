@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="-h" name="Create Runnable Jar for Project SAJR">
+	<path id="classpath">
+		<pathelement location="lib/htsjdk-2.11.0-3-g4f4c505-SNAPSHOT.jar"/>
+	</path>
+	<target name="-h">
+		<echo message="usage: ant jar"/>
+	</target> 
+	<target name="compile">
+		<javac srcdir="src" destdir="bin" classpathref="classpath"  includeAntRuntime="false" debug="true" debuglevel="lines,vars,source">
+		</javac>
+	</target>   
+	<target name="jar"  depends="compile">
+		<jar destfile="sajr.jar" filesetmanifest="mergewithoutmain">
+			<manifest>
+				<attribute name="Main-Class" value="run.Run"/>
+				<attribute name="Class-Path" value="."/>
+			</manifest>
+			<fileset dir="bin"/>
+			<zipfileset excludes="META-INF/*.SF" src="lib/htsjdk-2.11.0-3-g4f4c505-SNAPSHOT.jar"/>
+		</jar>
+	</target>
+</project>

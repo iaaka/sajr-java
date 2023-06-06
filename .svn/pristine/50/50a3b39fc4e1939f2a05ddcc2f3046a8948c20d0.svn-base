@@ -1,0 +1,10 @@
+package run;
+
+public class Test {
+	String version = "$LastChangedDate$\n$LastChangedRevision$".replace("$", "");
+	
+	public static void main(String[] args)  {
+		Run.main(new String[]{"annotate"});
+		//Run.main(new String[]{"sajrcomp"});
+	}
+}

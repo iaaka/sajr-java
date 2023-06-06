@@ -1,0 +1,339 @@
+package rc;
+
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+
+import run.Run;
+import htsjdk.samtools.SamInputResource;
+import htsjdk.samtools.SamReader;
+import htsjdk.samtools.SAMRecord;
+import htsjdk.samtools.SamReaderFactory;
+import util.Log;
+import util.Settings;
+import util.Util;
+import util.bio.ChrAnnotation;
+import util.bio.GFFException;
+import util.bio.GFFeature;
+import util.bio.GFFParser;
+import util.bio.Gene;
+import util.bio.Intron;
+import util.bio.Seg;
+
+class SingleReadReader {
+	HashMap<String, ChrAnnotation> chrs;
+	
+	public SingleReadReader(HashMap<String, ChrAnnotation> chrs) {
+		this.chrs = chrs;
+	}
+
+	public void read(SAMRecord r) {
+		ChrAnnotation c = chrs.get(r.getReferenceName());
+		if(c==null){
+			c = new ChrAnnotation(r.getReferenceName());
+			chrs.put(r.getReferenceName(),c);
+		}
+		int[] inters = Util.getMapIntervals(r);
+		int strand = Settings.S().getInt(Settings.STRANDED)*(r.getReadNegativeStrandFlag()?-1:1);
+		if(r.getReadPairedFlag() && !r.getFirstOfPairFlag())
+			strand = -strand;
+		c.addRead(inters, strand);
+	}
+}
+
+class PairedReadReader {
+	HashMap<String, ChrAnnotation> chrs;
+	String read_name = null;
+	//list of records by: read name;first_mate;chr;start;mate_start
+	HashMap<String,LinkedList<SAMRecord>> records = new HashMap<>(); 
+	
+	public PairedReadReader(HashMap<String, ChrAnnotation> chrs) {
+		this.chrs = chrs;
+	}
+
+	public void read(SAMRecord r) {
+		String n = r.getReadName();
+		//truncate read mate information if exists
+		if((n.charAt(n.length()-1) == '1' || n.charAt(n.length()-1) == '2') &&
+		   (n.charAt(n.length()-2) == ';' || n.charAt(n.length()-2) == '\\' || n.charAt(n.length()-2) == '/'))
+			n = n.substring(0,n.length()-2);
+		String mate_key = n+";"+!r.getFirstOfPairFlag()+";"+r.getMateReferenceName()+";"+r.getMateAlignmentStart()+";"+r.getAlignmentStart();
+		LinkedList<SAMRecord> mates = records.get(mate_key);
+		if(mates == null) {
+			String its_key = n+";"+r.getFirstOfPairFlag()+";"+r.getReferenceName()+";"+r.getAlignmentStart()+";"+r.getMateAlignmentStart();
+			mates = records.get(its_key);
+			if(mates == null) {
+				mates = new LinkedList<>();
+				records.put(its_key,mates);
+			}
+			mates.add(r);
+		}else {
+			SAMRecord f = r.getFirstOfPairFlag()?r:mates.removeFirst();
+			SAMRecord s = r.getFirstOfPairFlag()?mates.removeFirst():r;
+			if(mates.size() == 0)
+				records.remove(mate_key);
+			ChrAnnotation c = chrs.get(f.getReferenceName());
+			if(c==null){
+				c = new ChrAnnotation(f.getReferenceName());
+				chrs.put(f.getReferenceName(),c);
+			}
+			int[] r1 = Util.getMapIntervals(f);
+			int[] r2 = Util.getMapIntervals(s);
+			int strand = Settings.S().getInt(Settings.STRANDED)*(f.getReadNegativeStrandFlag()?-1:1);
+			c.addReads(r1, r2, strand);
+
+		}
+	}
+	
+	public void finish() {
+		if(records.size()!=0) {
+			int i = 0;
+			for(LinkedList<SAMRecord> t : records.values())
+				i += t.size();
+			SAMRecord t = records.values().iterator().next().getFirst();
+			Log.throwUncrucialExc("There are "+i+" read locations that doesn't have expected mate records. " +
+					"For example read "+t.getReadName()+", location "+t.getReferenceName()+":"+t.getAlignmentStart()+" "+
+					"should have mate mapped to "+t.getMateReferenceName()+":"+t.getMateAlignmentStart()+" "+
+					"but it cannot be found. It could happen if one mate was filtered out. " +
+					"For eaxample if NH attributes is one (or absent) in one of mates, " +
+					"while in other it is more than 1 and use_mult is set to false.");
+		}
+	}
+}
+
+public class ReadCounter {
+	HashMap<String, ChrAnnotation> chrs;
+	ArrayList<String> chr_ids;
+	ArrayList<Gene> genes;
+
+	public ReadCounter() {
+		try {
+			loadGff(Settings.S().getString(Settings.ANN_IN));
+		} catch (Exception e) {
+			Log.closeWithError("Cannot read annotation file: "+Settings.S().getString(Settings.ANN_IN),e);
+		}
+	}
+	
+	/**
+	 * if data is unstranded, loaded annotation will be also unstranded
+	 * @param f
+	 * @throws IOException
+	 * @throws GFFException 
+	 */
+	private void loadGff(String fname) throws IOException, GFFException{
+		String[] black_list = Settings.S().getString(Settings.GENE_BLACK_LIST).split("@");
+		Arrays.sort(black_list);
+		chrs = new HashMap<>();
+		chr_ids = new ArrayList<>();
+		genes = new ArrayList<>();
+		int[] stat = new int[3];
+		Gene g = null;
+		ChrAnnotation chr = null;
+		HashMap<Intron,Intron> ints = null;
+		//read
+		GFFParser gffp = new GFFParser(fname);
+		ArrayList<GFFeature> gff = new ArrayList<GFFeature>();
+		for(GFFeature f=gffp.next();f != null;f=gffp.next())
+			gff.add(f);
+		gffp.close();
+		//sort
+		Collections.sort(gff,new Comparator<GFFeature>() {
+			public int compare(GFFeature o1, GFFeature o2) {
+				if(!o1.seqname.equals(o2.seqname))
+					return o1.seqname.compareTo(o2.seqname);
+				String gid1 = o1.getAttr("gene_id");
+				String gid2 = o2.getAttr("gene_id");
+				if(!gid1.equals(gid2))
+					return gid1.compareTo(gid2);
+				//genes first
+				if(o1.feature.equals("gene") && !o2.feature.equals("gene"))
+					return -1;
+				if(!o1.feature.equals("gene") && o2.feature.equals("gene"))
+					return 1;
+				return 0;
+				 
+			}
+		});
+		//parse
+		for(GFFeature f : gff){
+			if(f.getAttr("gene_id") == null)
+				Log.closeWithError("Wrong annotation file format. Features should have gene_id attribute.", null);
+			if(Arrays.binarySearch(black_list, f.getAttr("gene_id")) >= 0)
+				continue;
+			int strand = Settings.S().getInt(Settings.STRANDED)==0?0:f.strand;
+			switch(f.feature) {
+			case "gene":
+				stat[0]++;
+				if(chr == null || !chr.getID().equals(f.seqname)) {
+					if(chr != null)
+						chr.loaded();
+					chr = new ChrAnnotation(f.seqname);
+					if(chrs.containsKey(f.seqname))
+						Log.closeWithError("Annotation file isn't sorted by chr: '"+f.seqname+"' meet at least twice!",new RuntimeException());
+					chrs.put(f.seqname, chr);
+					ints = new HashMap<Intron, Intron>();
+					chr_ids.add(f.seqname);
+				}
+				g = new Gene(f.start, f.stop,strand, f.seqname,f.getAttr("gene_id"));
+				chr.addGene(g);
+				genes.add(g);
+				break;
+			case "segment":
+				try {
+					g.addSeg(new Seg(f.start, f.stop,strand, Seg.segType.valueOf(f.getAttr("type")), Seg.segPos.valueOf(f.getAttr("position")),f.getAttr("segment_id")));
+				}catch(IllegalArgumentException e) {
+					Log.closeWithError("Unknown segment type = '"+f.getAttr("type")+
+							"' or position = '"+f.getAttr("position")+"'. " +
+							"Type should be in: "+Util.join(Seg.segType.values(), ", ")+
+							", position should be in: "+Util.join(Seg.segPos.values(), ", "), e);
+				}
+				stat[1]++;
+				break;
+			case "intron":
+				Intron i = new Intron(f.start, f.stop,strand);
+				if(!ints.containsKey(i))
+					ints.put(i, i);
+				g.addIntron(ints.get(i));
+				stat[2]++;
+				break;
+			default:
+				Log.closeWithError("Annotation contains unknown feature: '"+f.feature+"'. Only gene,segment and intron are allowed.", new RuntimeException());
+			}
+			
+		}
+		chr.loaded();
+		Log.println("Annotation loaded: #chr="+chrs.size()+"; #genes="+stat[0]+"; #segs="+stat[1]+"; #introns="+stat[2]);
+	}
+	
+	private void countReads() throws IOException  {
+		if(!(new File(Settings.S().getString(Settings.IN))).exists())
+			Log.closeWithError("Input file '"+Settings.S().getString(Settings.IN)+"' doesn't exists",new RuntimeException());
+		SamReader in = SamReaderFactory.makeDefault().open(SamInputResource.of(new BufferedInputStream(new FileInputStream(Settings.S().getString(Settings.IN)),10000000)));
+		SingleReadReader sreader = new SingleReadReader(chrs);
+		PairedReadReader preader = new PairedReadReader(chrs);
+		int i = 0;
+		for(SAMRecord r : in) {
+			Log.addStat(Log.TOTAL_READS, 1);
+			if(i % 10000000 == 0) {
+				Log.println(i+" lines parsed");
+			}
+			i++;
+			if(!accept(r)) {
+				continue;
+			}
+			if(Settings.S().getInt(Settings.PAIRED)==0 || !r.getReadPairedFlag() || !r.getProperPairFlag())
+				sreader.read(r);
+			else
+				preader.read(r);
+		}
+		Log.println(i+" lines parsed");
+		preader.finish();
+		in.close();
+	}
+	
+	public static void countAndPrint() throws IOException {
+		Log.addStat(Log.UNMAPPED, 0);
+		Log.addStat(Log.MULTI_READS, 0);
+		Log.addStat(Log.EXON_READS, 0);
+		Log.addStat(Log.GENE_READS, 0);
+		Log.addStat(Log.JUNCTIONS_CNT, 0);
+		Log.addStat(Log.PAIRED, 0);
+		Log.addStat(Log.SINGLETONS, 0);
+		Log.addStat(Log.TOTAL_READS, 0);
+		Log.addStat(Log.UNKNOWN_JUNCTION, 0);
+		Log.addStat(Log.UNKNOWN_JUNCTION_COMB, 0);
+		Log.addStat(Log.USED_READS, 0);
+		if(Settings.S().getBoolean(Settings.LOOK_FOR_GENE_FOR_UNKNOWN_JUNCTIONS))
+			Log.addStat(Log.NEW_JUNCTIONS_FOUND, 0);
+		Log.println("Count reads: "+Settings.S().getString(Settings.IN)+" -> "+Settings.S().getString(Settings.OUT_BASE));
+		ReadCounter r = new ReadCounter();
+		r.countReads();
+		try {
+			r.printGeneCov(r.genes);
+			r.printSegCov(r.genes);
+			r.printIntronCov();
+			Log.printStat();
+			Log.cleanStat();
+		}catch(IOException e) {
+			Log.closeWithError("Cannot write output: "+e.getMessage(),e);
+		}
+		
+	}
+	
+	public static boolean accept(SAMRecord r) {
+		if(Settings.S().getInt(Settings.PAIRED)!=0 && r.getReadPairedFlag() && r.getProperPairFlag() && !r.getReferenceIndex().equals(r.getMateReferenceIndex())) { 
+			Log.warn("Mates of read '"+r.getReadName()+"' are from different chromosomes, while bam FLAG says that they are properly paired. They will be treated as singletons.");
+			r.setProperPairFlag(false);
+		}
+		if(r.getReadUnmappedFlag()) {
+			Log.addStat(Log.UNMAPPED, 1);
+			return false;
+		}
+		Integer nh = (Integer)r.getAttribute("NH");
+		if(nh == null) {
+			Log.throwUncrucialExc("Read "+r.getReadName()+" doesn't have NH attribute!");
+			nh = 1;
+		}
+		if(nh > 1)
+			Log.addStat(Log.MULTI_READS, 1);
+		if(r.getReadPairedFlag() && r.getProperPairFlag())
+			Log.addStat(Log.PAIRED, 1);
+		else
+			Log.addStat(Log.SINGLETONS, 1);
+		return (Settings.S().getBoolean(Settings.USE_MULT) || nh == 1) 
+				&& (Settings.S().getInt(Settings.PAIRED)==0 || Settings.S().getBoolean(Settings.USE_SINGLETONS) || (r.getReadPairedFlag() && r.getProperPairFlag()));
+	}
+	
+	private void printIntronCov() throws FileNotFoundException {
+		PrintStream o = new PrintStream(Settings.S().getString(Settings.OUT_BASE)+".intron");
+		printHeader(o);
+		o.println("chr:start-stop"+(Settings.S().getInt(Settings.STRANDED)==0?"":":strand")+"\treads");
+		for(String c : chr_ids) {
+			ArrayList<Intron> ints = chrs.get(c).getIntrons();
+			Collections.sort(ints);
+			for(Intron i : ints)
+				o.println(c+":"+i.start+"-"+i.stop+(i.strand==0?"":(":"+i.strand))+"\t"+(int)i.getCov());
+		}
+		o.close();
+	}
+	
+	private void printSegCov(ArrayList<Gene> genes) throws FileNotFoundException {
+		PrintStream o = new PrintStream(Settings.S().getString(Settings.OUT_BASE)+".seg");
+		printHeader(o);
+		o.println("segment_id\tinclusion_read\texclusion_read\tinclusion_ratio");
+		for(Gene g : genes) {
+			g.printSegCovs(o);
+		}
+		o.close();
+	}
+	
+	private void printGeneCov(ArrayList<Gene> genes) throws FileNotFoundException {
+		PrintStream o = new PrintStream(Settings.S().getString(Settings.OUT_BASE)+".gene");
+		printHeader(o);
+		o.println("gene_id\treads");
+		for(Gene g : genes) {
+			o.println(g.getId()+"\t"+(int)g.getCov());
+		}
+		o.close();
+	}
+	
+	private void printHeader(PrintStream o) {
+		o.println("#"+new Date()+" - "+Settings.VERSION+" - "+Run.COUNT_READS);
+		HashSet<String> gr = new HashSet<String>();
+		gr.add("common");
+		gr.add("read_counter");
+		o.println("#Settings:");
+		Settings.S().printSettings("#",gr, o);
+	}
+}

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="-h" basedir="/home/mazin/java_src/SplicingAnalyser" name="SA">
+	<property name="mc" value="run.Run"/>
+	<property name="Xmx" value="1g"/>
+	<property name="argv" value=""/>
+	<property name="java_src" value=".."/>
+	<path id="classpath">
+		<fileset dir="${java_src}/libraries/" includes="sam-1.75.jar"/>
+		<pathelement path="${java_src}/SplicingAnalyser/bin"/>
+	</path>
+	<target name="-h">
+		<echo message="usage: ant run -Dmc=run.Run -DXmx=1g -Dargv='test1 test2 test3'"/>
+		<echo message="defaults: -DXmx=1g"/>
+	</target>
+    <target name="compile">
+    	<javac srcdir="${java_src}/SplicingAnalyser/src" destdir="${java_src}/SplicingAnalyser/bin" classpathref="classpath" includeAntRuntime="false" debug="true" debuglevel="lines,vars,source"/>
+	</target>
+    <target name="jar" depends="compile">
+        <jar destfile="${jar.path}" filesetmanifest="mergewithoutmain">
+            <manifest>
+                <attribute name="mc" value="${mc}"/>
+                <attribute name="Class-Path" value="."/>
+            </manifest>
+            <zipfileset excludes="META-INF/*.SF" src="${java_src}/libraries/sam-1.75.jar"/>
+            <fileset dir="${java_src}/SplicingAnalyser/bin"/>
+        </jar>
+    </target>
+    <target name="run_jar" depends="jar">
+        <java fork="true" jar="${jar.path}">
+    		<jvmarg value="-Xmx${Xmx}"/>
+        	<arg line="${argv}"/>
+        </java>
+    </target>
+    <target name="run" depends="compile">
+        <java fork="true" classname="${mc}" classpathref="classpath">
+        	<jvmarg value="-Xmx${Xmx}"/>
+			<jvmarg value="-XX:MaxPermSize=1g"/>
+        	<arg line="${argv}"/>
+        </java>
+    </target>
+</project>
