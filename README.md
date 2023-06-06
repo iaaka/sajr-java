@@ -1,5 +1,5 @@
 # sajr-java
-It is java part of SAJR - the package to analyse alternative splicing bsed on bulk RNA-seq. This repository contains java code for read counter. Please go to https://github.com/iaaka/sajr if you with to perform alternative splicing analyses, this repo is for developmental purposes only.
+It is java part of SAJR - the package to analyse alternative splicing bsed on bulk RNA-seq. This repository contains java code for read-counter. Please go to https://github.com/iaaka/sajr if you with to perform alternative splicing analyses, this repo is for developmental purposes only.
 
 ## Compilation
 Sajr uses ant as compilation manager, under linux it can be installed by `sudo apt install ant`.
