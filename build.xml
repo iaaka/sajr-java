@@ -7,6 +7,7 @@
 		<echo message="usage: ant jar"/>
 	</target> 
 	<target name="compile">
+		<mkdir dir="bin" />
 		<javac srcdir="src" destdir="bin" classpathref="classpath"  includeAntRuntime="false" debug="true" debuglevel="lines,vars,source">
 		</javac>
 	</target>   
