@@ -121,12 +121,12 @@ public class Run {
 		System.out.println(Settings.VERSION);
 		System.out.println("Developed by Mazin Pavel");
 		System.out.println("mailto: iaa.aka@gmail.com");
-		System.out.println("site: http://storage.bioinf.fbb.msu.ru/~mazin/");
+		System.out.println("site: https://github.com/iaaka/sajr-java");
 		System.out.println("cite: P. Mazin et al. MSB 9:633 (2013).");
-		System.out.println("Moscow, 2012");
+		System.out.println("Moscow 2012 -> Saffron Walden 2024");
 		System.out.println();
 		System.out.println("usage: method={count_reads|gff2sajr|gff32sajr|annotate|sajrcomp|sajr2transc} [settings file] [optionis]");
 		System.out.println("Options, in form of -option_name=value can be used to overwride any settings from settings file");
-		System.out.println("Example: annotate mysettings -ann_out=myAnnotation.gff");
+		System.out.println("Example: java -jar count_reads -batch_in=sample1.bam -batch_out=sample1");
 	}
 }

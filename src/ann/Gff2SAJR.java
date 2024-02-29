@@ -36,15 +36,29 @@ public class Gff2SAJR {
 		out.printCuff2SAJRHeader();
 		String[] black_list = Settings.S().getString(Settings.GENE_BLACK_LIST).split("@");
 		Arrays.sort(black_list);
-		GFFParser p = new GFFParser(in);
-		// read gff
+		
+		// load whole gtf
+		GFFParser gffp = new GFFParser(in);
+		ArrayList<GFFeature> gffa = new ArrayList<GFFeature>();
+		for(GFFeature f=gffp.next();f != null;f=gffp.next())
+			gffa.add(f);
+		gffp.close();
+		//sort
+		Collections.sort(gffa,new Comparator<GFFeature>() {
+			public int compare(GFFeature o1, GFFeature o2) {
+					return o1.seqname.compareTo(o2.seqname);
+			}
+		});
+		
+		// convert
 		ArrayList<GFFeature> gff = new ArrayList<>();
 		boolean has_transc_feature = true;
 		boolean has_exon_no_feature = true;
 		int i=1;
 		String chr = null;
 		HashSet<String> chr_ids = new HashSet<>();
-		for(GFFeature f = p.next();;f = p.next()){
+		
+		for(GFFeature f : gffa){
 			if(chr == null) {
 				chr = f.seqname;
 				chr_ids.add(chr);
@@ -71,7 +85,6 @@ public class Gff2SAJR {
 			}
 			i++;
 		}
-		p.close();
 		out.close();
 	}
 	
