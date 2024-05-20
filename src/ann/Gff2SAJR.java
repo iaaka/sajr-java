@@ -54,11 +54,16 @@ public class Gff2SAJR {
 		ArrayList<GFFeature> gff = new ArrayList<>();
 		boolean has_transc_feature = true;
 		boolean has_exon_no_feature = true;
-		int i=1;
+		
 		String chr = null;
 		HashSet<String> chr_ids = new HashSet<>();
 		
-		for(GFFeature f : gffa){
+		for(int i=0;i<=gffa.size();i++) {
+			// for last chr
+			GFFeature f = null;
+			if(i<gffa.size())
+				f = gffa.get(i);
+			
 			if(chr == null) {
 				chr = f.seqname;
 				chr_ids.add(chr);
@@ -73,8 +78,6 @@ public class Gff2SAJR {
 				has_transc_feature = true;
 				has_exon_no_feature = true;
 				chr = f.seqname;
-				if(!chr_ids.add(chr))
-					Log.closeWithError("GTF file have to be sorted by seqname! It isn't true for line " + i, new RuntimeException());
 			}
 
 			if(f.feature.equals("exon") || f.feature.equals("transcript"))
@@ -83,7 +86,6 @@ public class Gff2SAJR {
 				has_transc_feature = has_transc_feature && f.getAttr("transcript_id") != null;
 				has_exon_no_feature = has_transc_feature && f.getAttr("exon_number") != null;
 			}
-			i++;
 		}
 		out.close();
 	}
