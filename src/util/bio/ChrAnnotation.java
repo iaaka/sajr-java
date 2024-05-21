@@ -91,6 +91,23 @@ public class ChrAnnotation {
 	 * @return set of introns that are with this read
 	 */
 	private HashSet<Intron> getIntronsForRead(int[] r,int strand){
+		if(strand == 0) {
+			HashSet<Intron> resp = getIntronsForRead(r,  1);
+			HashSet<Intron> resn = getIntronsForRead(r, -1);
+			boolean pos_ok = allIntronsHaveGenes(resp);
+			boolean neg_ok = allIntronsHaveGenes(resn);
+			HashSet<Intron> res = new HashSet<Intron>();
+			
+			if(pos_ok)
+				res.addAll(resp);
+			if(neg_ok)
+				res.addAll(resn);
+			if(!pos_ok & !neg_ok) {
+				res.addAll(resp);
+				res.addAll(resn);
+			}
+			return res;
+		}
 		HashSet<Intron> res = new HashSet<>();
 		for(int i=2;i<r.length;i+=2) {
 			Intron newInt = new Intron(r[i-1]+1,r[i]-1,strand);
